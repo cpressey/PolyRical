@@ -1,7 +1,8 @@
 PolyRical
 =========
 
-PolyRical is a successor language to [SixtyPical][].
+PolyRical is a successor language to [SixtyPical][].  It explores a few (but by no
+means all) of the avenues mentioned in the [Further Directions for SixtyPical][] document.
 
 Like SixtyPical, it is a very low-level language that nonetheless supports advanced
 forms of static analysis.  It aims to be based on a cleaner, more general theory of
@@ -9,8 +10,9 @@ operation than SixtyPical, and thus (ideally speaking) able to target architectu
 other than the 6502.
 
 [SixtyPical]: https://catseye.tc/node/SixtyPical
+[Further Directions for SixtyPical]: TK
 
-### A self-contained example
+### A motivating example
 
 A PolyRical program consists of pragmas, templates, and declarations.  Typically one
 would import a set of templates from a library using a pragma, but to convey the
@@ -20,21 +22,20 @@ flavour of the the language, here is a self-contained example program:
     word[8] location score @ 0xc000
     
     template(out A) load(A, word[8] value val) {
-        "LDA #${val}"
+        0xA9 [val]                                  /* LDA immediate */
     }
     
     template(in A, out dest) store(A, word[8] location dest) {
-        "STA ${dest}"
+        0x8D [<dest] [>dest]                        /* STA absolute */
     }
-
+    
     routine(uses A, out score) main {
         load(A, 0)
         store(A, score)
     }
 
 Note that this is enough information to consider the version of `main` show above
-to be valid, and to produce (most of) an assembly-language program for it, while
-rejecting
+to be valid, and to produce an assembly-language program for it, while rejecting
 
     routine(uses A, out score) main {
         store(A, score)
@@ -81,3 +82,36 @@ such as Java.  Actually, it goes further, in that a template definition can
 list a particular declaration, rather than a type, as one of its parameters.
 This definition will be selected when this exact parameter is used.  The `load`
 and `store` templates in the above example demonstrate this for the declaration `A`.
+
+### Meaningful values
+
+The most prominent property of declarations that PolyRical tracks is _meaningfulness_.
+This is very similar to how many C compilers track _defineness_ of variables, and
+are able to warn the user if the code uses a variable that is not defined, or may not
+be defined in all cases.
+
+Meaningfulness is controlled by three constraints on each routine type and on each
+template:
+
+*   `in` asserts that a declaration must be meaningful before the routine or template is applied
+*   `out` asserts that a declaration will be meaningful after the routine or template is applied
+*   `uses` asserts that a declaration will not be meaningful after the routine or template is applied
+
+The meaningfulness of all other declarations is preserved when a routine or template
+is applied.
+
+### Control flow
+
+Static analysis is trivial if all programs are entirely straight-line code; the
+complications come up when branching occurs.
+
+But branching is also an opportunity, because every time a branch occurs, the
+analyzer has more information about what conditions must pertain in each branch.
+(cf. flow typing)
+
+For example, if we branch on the carry flag, we know that, in the code that we
+branch to, the carry flag must always be set; and in the code where the branch
+was failed to be taken, the carry flag must always be clear.
+
+(TODO write more about how we'd like to capture control flow in templates but
+we probably won't to start because that's very very hard.)
