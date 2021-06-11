@@ -10,8 +10,8 @@ operation than SixtyPical, and thus (ideally speaking) able to target architectu
 other than the 6502.  PolyRical is also more like a macro assembler than SixtyPical,
 and there is less emphasis on permitting optimizations.
 
-This document is still at the **design stage**.  No code has been written, and all of
-the decisions described here are subject to change.
+This document is still at the **design stage**.  It is also poorly organized.  No code
+has been written, and all of the decisions described here are subject to change.
 
 [SixtyPical]: https://catseye.tc/node/SixtyPical
 [Future directions for SixtyPical]: https://gist.github.com/cpressey/f35e104b3e3cf555824aa2b4d15ea858
@@ -110,6 +110,9 @@ is applied.
 In particular, `in` asserts the meaningfulness of a declaration during input, so
 in the absence of `trash` on the same declaration, the declaration is assumed to
 also be meaningful on output.
+
+(Meaningfulness has some inheritable/closure properties, too.  TODO: read the SixtyPical
+test suite, extract these properties, and summarize them here.)
 
 Other properties of declarations beyond meaningfulness, such as range, and whether
 a routine is  ever called, are trackable by symbolic execution.  SixtyPical already
@@ -210,38 +213,69 @@ a routine:
 It might be the case that implicit templates can be used for control structures as
 well, but it is less clear in what exact manner that would happen.
 
+One part of it would probably be an implicit template for an unconditional jump:
+
+    template _jump(label r) {
+        0x4c [<r] [>r]                          /* JMP absolute */
+    }
+
+It might be possible to have condition templates which represent the possible
+conditions in an `if` or `repeat` test.  The condition name would be passed
+to the control structure, and the control structure would select the condition
+template for that name, when generating the test part of the control structure.
+
 ### Template format
 
 The formal arguments of the template are given in a list; `in`, `out`, and
 `trash` modifiers are attached to them directly.
 
-The body of the template consists of a list of 8-bit bytes.  Certainly one
+The template may involve the state of the machine beyond just the arguments
+it is given.  When it does this, it should give a list of declarations that
+are involved, and `in`, `out`, and `trash` modifiers on them as necessary.
+This is not an ordered list, it is a set, and it appears after the list of
+arguments.
+
+Example (not necessarily a good template, but demonstrates the features):
+
+    template lda(word[8] value val) : (out A) {
+        0xA9 [val]
+    }
+
+The body of the template consists of a list of 8-bit bytes.  (Certainly one
 could argue this is not the apex of architecture-agnosticism, but, we will
-accept some limitations in the name of getting something done.
+accept some limitations in the name of getting something done.)
 
 These emitted bytes are specified by literal values, or functions of
-parameter names.
+parameter or declaration names.
 
 Literal values are emitted directly in the output binary.  They are usually
 given in hexadecimal, and correspond to opcodes or constant operands.
 
-Parameters of the `value` role resolve to their value.  If the value consists
-of more than 8 bits, a function must be used to extract 8 bits at a time.
-
-Parameters of the `location` role resolve to their address.  If the address
-consists of more than 8 bits, again, a function must be used to extract 8 bits
+Parameters or declarations of the `value` role resolve to their value.  If the
+value consists of more than 8 bits, a function must be used to extract 8 bits
 at a time.
+
+Parameters or declarations of the `location` role resolve to their address.
+If the address consists of more than 8 bits, again, a function must be used
+to extract 8 bits at a time.
 
 Other functions should be available to, say, convert an absolute address into
 one relative to the current emitting address (for relative branches).
 
 ### Questions about templates
 
-Can templates call other templates?
+Can templates call other templates?  On the one hand this seems like it could
+be useful.  On the other hand it complicates analysis.  In a sense, templates
+should be considered "atomic units" with respect to analysis.  They simply
+tell us what it is they affect; we take their word for it, and shouldn't have
+to check them.  Also, any aggregation of template bodies could be done by
+hand, so templates-calling-other-templates isn't strictly necessary.
 
-Can templates affect declarations that aren't given as parameters?  It would
-be useful if they could, but where then do we notate that these declarations
-are `in`, `out`, `trash`?
+What happens when one of the parameters is the same as one of the declarations
+in the "this template also involves" set?  This, too, complicates analysis.
+It's tempting to say that the situation should be just disallowed, because it's
+hard to see how it leads to more utility in a clean way, and easy to see how
+template-hygiene-violation-like errors could happen with it.
 
 Implementation notes
 --------------------
@@ -259,4 +293,4 @@ control-flow graph (with explicit join nodes and so forth) on an early pass,
 then to traverse that graph, instead of the AST, during static analyses and
 code generation.
 
-[flow typing]: https://en.wikipedia.org/wiki/Flow_typing
+[flow typing]: https://en.wikipedia.org/wiki/Flow-sensitive_typing
