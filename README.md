@@ -27,11 +27,11 @@ flavour of the the language, here is a self-contained example program:
     word[8] location score @ 0xc000
     
     template load(out A, word[8] value val) {
-        0xA9 /* LDA imm */ [val]
+        /* LDA immediate */ 0xA9 val
     }
     
     template store(in A, out word[8] location dest) {
-        0x8D /* STA abs */ [<dest] [>dest]
+        /* STA absolute */ 0x8D lo(dest) hi(dest)
     }
     
     routine(out score, trash A) main {
@@ -114,9 +114,6 @@ In particular, `in` asserts the meaningfulness of a declaration during input, so
 in the absence of `trash` on the same declaration, the declaration is assumed to
 also be meaningful on output.
 
-(Meaningfulness has some inheritable/closure properties, too.  TODO: read the SixtyPical
-test suite, extract these properties, and summarize them here.)
-
 Other properties of declarations beyond meaningfulness, such as range, and whether
 a routine is  ever called, are trackable by symbolic execution.  SixtyPical already
 tracks several of these, and one day PolyRical might as well.
@@ -130,9 +127,39 @@ a single-bit flag register is `word[1]`.
 
 Routine types have already been discussed.
 
-It is likely that array, index, and pointer types will also be available.  It is
-also likely that index and pointer types can be restricted to pointing within a
-a particular array.
+There is also an array (or table) type, which represents a contiguous section
+of memory, when applied to a location.  There could, in theory, also be table
+values, to represent things like string constants, but this area is not well worked out.
+
+Although there may one day be a pointer type, there are two types which are
+related but more relevant.
+
+The first is an index type, which is effectively a pointer within a particular table.
+It is possibly a role, rather than a type, because it is also effectively just an
+integer value with a limited range (and the concept of limited range can be applied
+to any value.)
+
+Whichever way it is, templates for operations which access or update a location
+within a table will take an index and use it.  The template decides exactly how
+to compute the offset to within the table.  So, for example, a table of 16-bit
+values can be implemented as a single memory table, multiplying the index by
+two, and retrieving the byte at the index, and the next byte in memory; or it
+can be implemented by two memory tables, accessed with the same index, with the
+high byte stored in one and the low byte in the other.  A template for either
+kind of access ought to be constructible.
+
+The second is a pointer to code.  The routine type covers most of these cases,
+e.g. a jump table is a table of values of routine type.  But for conditional
+templates (see below) we may need to expose a "label" type which is a pointer
+to an instruction somewhere inside a routine.  Because of how much these things
+complicate analysis, it's likely their use will be highly restricted.
+
+Meaningfulness has "at least as much as" properties when it comes to using values of
+routine type.  Such a table might be defined with a type of routines that
+trash a given declaration (for example, `A`).  This should be thought of as
+saying "In the worst case, the routines stored in this table trash A".  It
+should be entirely possible to assign a routine that does _not_ trash A, to
+a cell in that table.
 
 ### Roles
 
@@ -172,9 +199,9 @@ blocks as parameters, allowing the programmer to, for example, define a template
 called `ifzero` that works like so:
 
     template ifzero(block) {
-        0xd0 /* BNE */ [@label]
-        [block]
-        :label
+        /* BNE */ 0xd0 rel(label)
+        block
+        label:
     }
 
 That is, it takes a block and generates the machine code for making a conditional
@@ -201,7 +228,7 @@ its caller, but the program doesn't provide a way to say that in machine languag
 But we can provide this information by defining an implicit template like
 
     template _return() {
-        0x90 /* RTS */
+        /* RTS */ 0x90
     }
 
 and the compiler would insert this at the end of each routine as necessary.
@@ -210,7 +237,7 @@ Correspondingly, we need to define what it means to the machine language to call
 a routine:
 
     template _call(routine r) {
-        0x20 /* JSR */ [<r] [>r]
+        /* JSR */ 0x20 lo(r) hi(r)
     }
 
 It might be the case that implicit templates can be used for control structures as
@@ -219,8 +246,19 @@ well, but it is less clear in what exact manner that would happen.
 One part of it would probably be an implicit template for an unconditional jump:
 
     template _jump(label r) {
-        0x4c /* JMP abs */ [<r] [>r]
+        /* JMP absolute */ 0x4c lo(r) hi(r)
     }
+
+(And, just as an aside, the library might define symbolic constants for opcodes
+instead of writing them in comments like we've been doing here.  Like so:
+
+    word[8] value JMP_abs = 0x4c
+    template _jump(label r) {
+        JMP_abs lo(r) hi(r)
+    }
+
+In subsequent examples we'll start assuming such symbolic constants have been
+defined.)
 
 It might be possible to have condition templates which represent the possible
 conditions in an `if` or `repeat` test.  The condition name would be passed
@@ -240,11 +278,11 @@ the label to jump to and the sense of the test that is being generated.  The
 template library should provide templates to cover both cases.  For example,
 
     template zero?(label, true, in A) {
-        0xf0 /* BEQ */ [@label]
+        BEQ rel(label)
     }
 
     template zero?(label, false, in A) {
-        0xd0 /* BNE */ [@label]
+        BNE rel(label)
     }
 
 In a routine, this template would be invoked when compiling a control
@@ -265,6 +303,9 @@ needed on.
 The formal arguments of the template are given in a list; `in`, `out`, and
 `trash` modifiers are attached to them directly.
 
+Only `location` role arguments can be given `in`, `out`, and `trash`
+modifiers; they don't make sense on those of `value` role.
+
 The template may involve the state of the machine beyond just the arguments
 it is given.  When it does this, it should give a list of declarations that
 are involved, and `in`, `out`, and `trash` modifiers on them as necessary.
@@ -274,7 +315,7 @@ arguments.
 Example (not necessarily a good template, but demonstrates the features):
 
     template lda(word[8] value val) : (out A) {
-        0xA9 [val]
+        0xA9 val
     }
 
 The body of the template consists of a list of 8-bit bytes.  (Certainly one
@@ -298,7 +339,10 @@ to extract 8 bits at a time.
 Other functions should be available to, say, convert an absolute address into
 one relative to the current emitting address (for relative branches).
 
-### Questions about templates
+In the above examples, the functions `lo()`, `hi()`, and `rel()` have served
+these purposes.
+
+### Limitations on templates
 
 Can templates call other templates?  On the one hand this seems like it could
 be useful.  On the other hand it complicates analysis.  In a sense, templates
