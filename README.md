@@ -1,6 +1,12 @@
 PolyRical
 =========
 
+_Work-in-Progress_
+| _See also:_ [SixtyPical](https://github.com/catseye/SixtyPical#readme)
+∘ [Shelta](https://github.com/catseye/Shelta#readme)
+
+- - - -
+
 PolyRical is a successor language to [SixtyPical][].  It explores a few (but by no
 means all) of the avenues mentioned in the [Future directions for SixtyPical][] document.
 
