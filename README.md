@@ -304,7 +304,7 @@ structure like `if` or `repeat` that takes a condition, like so:
 
 What sense of test the compiler wants to generate for this, is up to
 the compiler.  The library has supplied both templates, it will pick the
-needed on.
+needed one.
 
 ### Template format
 
@@ -383,7 +383,7 @@ in this code, and you are urged to treat it as a sketch.
         load(Y, 0)
         repeat {
             chrin()
-            store(line, Y)
+            store(A, line, Y)
             inc(Y)
         } until equal?(A, 0x0d)
     }
