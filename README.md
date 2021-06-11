@@ -6,7 +6,7 @@ means all) of the avenues mentioned in the [Future directions for SixtyPical][] 
 
 Like SixtyPical, it is a very low-level language that nonetheless supports advanced
 forms of static analysis.  It aims to be based on a cleaner, more general theory of
-operation than SixtyPical, and thus (ideally speaking) able to target architectures
+operation than SixtyPical, and thus (hopefully) able to target architectures
 other than the 6502.  PolyRical is also more like a macro assembler than SixtyPical,
 and there is less emphasis on permitting optimizations.
 
@@ -27,11 +27,11 @@ flavour of the the language, here is a self-contained example program:
     word[8] location score @ 0xc000
     
     template load(out A, word[8] value val) {
-        0xA9 [val]                                  /* LDA immediate */
+        0xA9 /* LDA imm */ [val]
     }
     
     template store(in A, out word[8] location dest) {
-        0x8D [<dest] [>dest]                        /* STA absolute */
+        0x8D /* STA abs */ [<dest] [>dest]
     }
     
     routine(out score, trash A) main {
@@ -39,7 +39,10 @@ flavour of the the language, here is a self-contained example program:
         store(A, score)
     }
 
-Note that this is enough information to consider `main`, shown above, to be a valid
+(The text within `/*` and `*/` is comments and is ignored by the compiler.  It is
+supplied in the example to clarify what opcodes these templates will emit.)
+
+Observe that this is enough information to consider `main`, shown above, to be a valid
 routine, and to (almost) produce a machine-language program for it, while rejecting
 
     routine(out score, trash A) main {
@@ -161,15 +164,15 @@ analyzer has more information about what conditions must pertain in each branch.
 (cf. [flow typing][])
 
 For example, if we branch on the carry flag, we know that, in the code that we
-branch to, the carry flag must always be set; and in the code where the branch
-was failed to be taken, the carry flag must always be clear.
+branch to, the carry flag must necessarily be set; and in the code where the branch
+was failed to be taken, the carry flag must necessarily be clear.
 
 Ideally, we'd like to capture control flow in templates; templates should take
 blocks as parameters, allowing the programmer to, for example, define a template
 called `ifzero` that works like so:
 
     template ifzero(block) {
-        0xd0 [@label]                            /* BNE */
+        0xd0 /* BNE */ [@label]
         [block]
         :label
     }
@@ -198,7 +201,7 @@ its caller, but the program doesn't provide a way to say that in machine languag
 But we can provide this information by defining an implicit template like
 
     template _return() {
-        0x90                                    /* RTS */
+        0x90 /* RTS */
     }
 
 and the compiler would insert this at the end of each routine as necessary.
@@ -207,7 +210,7 @@ Correspondingly, we need to define what it means to the machine language to call
 a routine:
 
     template _call(routine r) {
-        0x20 [<r] [>r]                          /* JSR */
+        0x20 /* JSR */ [<r] [>r]
     }
 
 It might be the case that implicit templates can be used for control structures as
@@ -216,13 +219,46 @@ well, but it is less clear in what exact manner that would happen.
 One part of it would probably be an implicit template for an unconditional jump:
 
     template _jump(label r) {
-        0x4c [<r] [>r]                          /* JMP absolute */
+        0x4c /* JMP abs */ [<r] [>r]
     }
 
 It might be possible to have condition templates which represent the possible
 conditions in an `if` or `repeat` test.  The condition name would be passed
 to the control structure, and the control structure would select the condition
 template for that name, when generating the test part of the control structure.
+
+One complication is that the condition template needs to know the location
+in the program to branch to.  Unlike most locations, this is the address of
+a machine instruction.  So it might have its own special role.
+
+Another complication is that sometimes it is advantageous for the compiler to
+generate a branch for when the condition is true, and sometimes the branch for
+when it is *not* true.
+
+So, condition templates take two extra parameters, supplied by the system:
+the label to jump to and the sense of the test that is being generated.  The
+template library should provide templates to cover both cases.  For example,
+
+    template zero?(label, true, in A) {
+        0xf0 /* BEQ */ [@label]
+    }
+
+    template zero?(label, false, in A) {
+        0xd0 /* BNE */ [@label]
+    }
+
+In a routine, this template would be invoked when compiling a control
+structure like `if` or `repeat` that takes a condition, like so:
+
+    routine(out score, in A) main {
+        if(zero?(A)) {
+            store(A, score)
+        }
+    }
+
+What sense of test the compiler wants to generate for this, is up to
+the compiler.  The library has supplied both templates, it will pick the
+needed on.
 
 ### Template format
 
