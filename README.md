@@ -58,6 +58,8 @@ and also rejecting
 
 with a message such as `'main' does not give a meaningful value to 'score'`.
 
+You can also read [a more involved example](#a-more-involved-example) below.
+
 In more detail
 --------------
 
@@ -289,7 +291,7 @@ In a routine, this template would be invoked when compiling a control
 structure like `if` or `repeat` that takes a condition, like so:
 
     routine(out score, in A) main {
-        if(zero?(A)) {
+        if zero?(A) {
             store(A, score)
         }
     }
@@ -356,6 +358,95 @@ in the "this template also involves" set?  This, too, complicates analysis.
 It's tempting to say that the situation should be just disallowed, because it's
 hard to see how it leads to more utility in a clean way, and easy to see how
 template-hygiene-violation-like errors could happen with it.
+
+A More Involved Example
+-----------------------
+
+This is [the "echo" program from SITU-SOL](https://raw.githubusercontent.com/catseye/SITU-SOL/master/doc/bootstrap-zero/images/tumblr_inline_nqr9ipKWZB1tvda25_540.jpg)
+([hand-assembled version](https://raw.githubusercontent.com/catseye/SITU-SOL/master/doc/bootstrap-zero/images/tumblr_inline_nqr9jfJpBU1tvda25_540.jpg))
+converted to PolyRical.
+
+Given that none of this is implemented yet, there are almost certainly shortcomings
+in this code, and you are urged to treat it as a sketch.
+
+    include "lib/c64.polyrical"
+
+    word[8][256] location line @ 0xC000
+
+    routine (out line, trash a, trash y) read_tty {
+        load(Y, 0)
+        repeat {
+            chrin()
+            store(line, Y)
+            inc(Y)
+        } until equal?(A, 0x0d)
+    }
+
+    routine (in line, trash a, trash y) write_tty {
+        load(Y, 0)
+        repeat {
+            load(A, line, Y)
+            chrout()
+            inc(Y)
+        } until equal?(A, 0x0d)
+    }
+
+    routine (trash a, trash y, trash line) main {
+        repeat {
+            read_tty()
+            write_tty()
+        } forever
+    }
+
+where "lib/c64.polyrical" would contain something like
+
+    include "lib/6502.polyrical"
+
+    extern routine(out a) chrin @ 0xFFCF
+    extern routine(in a, trash a) chrout @ 0xFFD2
+
+and "lib/6502.polyrical" would contain something like
+
+    word[8] register A
+    word[8] register Y
+
+    template load(out Y, word[8] value val) {
+        /* LDY immediate */ 0xA0 val
+    }
+
+    template load(out A, in word[8][*] location addr, in Y) {
+        /* LDA absolute, Y */ 0xB9 lo(addr) hi(addr)
+    }
+
+    template store(in A, out word[8][*] location dest, in Y) {
+        /* STA absolute, Y */ 0x99 lo(dest) hi(dest)
+    }
+
+    template inc(in out Y) {
+        /* INY */ 0xC8
+    }
+
+    template equal?(label, true, in A, word[8] value v) {
+        /* CMP immediate */ 0xC9 v
+        /* BEQ */ 0xF0 rel(label)
+    }
+
+    template equal?(label, false, in A, word[8] value v) {
+        /* CMP immediate */ 0xC9 v
+        /* BNE */ 0xD0 rel(label)
+    }
+
+Note that in reality, `INY` and other opcodes here set some flags, so
+a more realistic version of this file would have
+
+    word[1] register Z
+    word[1] register N
+
+    template inc(in out Y) : (out Z, out N) {
+        /* INY */ 0xC8
+    }
+
+and so forth.
 
 Implementation notes
 --------------------
