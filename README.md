@@ -7,7 +7,8 @@ means all) of the avenues mentioned in the [Future directions for SixtyPical][] 
 Like SixtyPical, it is a very low-level language that nonetheless supports advanced
 forms of static analysis.  It aims to be based on a cleaner, more general theory of
 operation than SixtyPical, and thus (ideally speaking) able to target architectures
-other than the 6502.
+other than the 6502.  PolyRical is also more like a macro assembler than SixtyPical,
+and there is less emphasis on permitting optimizations.
 
 This document is still at the **design stage**.  No code has been written, and all of
 the decisions described here are subject to change.
@@ -18,7 +19,7 @@ the decisions described here are subject to change.
 Motivating example
 ------------------
 
-A PolyRical program consists of pragmas, templates, and declarations.  Typically one
+A PolyRical program consists of pragmas, templates, and declarations.  Typically a program
 would import a set of templates from a library using a pragma, but to convey the
 flavour of the the language, here is a self-contained example program:
 
@@ -38,8 +39,8 @@ flavour of the the language, here is a self-contained example program:
         store(A, score)
     }
 
-Note that this is enough information to consider the version of `main` show above
-to be valid, and to (almost) produce a machine-language program for it, while rejecting
+Note that this is enough information to consider `main`, shown above, to be a valid
+routine, and to (almost) produce a machine-language program for it, while rejecting
 
     routine(out score, trash A) main {
         store(A, score)
@@ -110,8 +111,9 @@ In particular, `in` asserts the meaningfulness of a declaration during input, so
 in the absence of `trash` on the same declaration, the declaration is assumed to
 also be meaningful on output.
 
-Beyond meaningfulness, other properties of declarations such as range, and
-whether a routine is ever called, are trackable by symbolic execution.
+Other properties of declarations beyond meaningfulness, such as range, and whether
+a routine is  ever called, are trackable by symbolic execution.  SixtyPical already
+tracks several of these, and one day PolyRical might as well.
 
 ### Data types
 
@@ -153,32 +155,108 @@ complications come up when branching occurs.
 
 But branching is also an opportunity, because every time a branch occurs, the
 analyzer has more information about what conditions must pertain in each branch.
-(cf. flow typing)
+(cf. [flow typing][])
 
 For example, if we branch on the carry flag, we know that, in the code that we
 branch to, the carry flag must always be set; and in the code where the branch
 was failed to be taken, the carry flag must always be clear.
 
-Ideally, we'd like to capture control flow in templates; templates could take
+Ideally, we'd like to capture control flow in templates; templates should take
 blocks as parameters, allowing the programmer to, for example, define a template
-called `ifzero` that takes a block and generates the machine code for making a
-test against zero, making a jump, and machine code for the entire block.  This
-would allow us to implement control structures in an architecture-agnostic way.
+called `ifzero` that works like so:
 
-Unfortunately, that also complicates analysis immensely.  So, while that is
-a noble goal, we may stick to hard-coded control structures for the first few
-versions.
+    template ifzero(block) {
+        0xd0 [@label]                            /* BNE */
+        [block]
+        :label
+    }
 
-One way to live with hard-coded control structures is to have templates that
-are employed implicitly.  For example, the reason we said the motivating
-example given above is only "almost" enough information to produce a machine-language
-program, is that we haven't defined what the `main` routine should do when it's
-finished.  Presumably it should return to its caller, but the program doesn't
-provide a way to say that in machine language.  So we would need to define
-an implicit template like
+That is, it takes a block and generates the machine code for making a conditional
+branch against the Z flag, and machine code for the entire passed-in block.  This
+allows us to implement control structures in an architecture-agnostic way.
+
+However, this complicates analysis significantly.  If the user is allowed to
+write arbitrary combinations of branches and labels inside a template, the analyzer
+needs to be able to handle arbitrary combinations of branches and labels.
+We'd prefer to avoid that.
+
+We can avoid that by providing only canned control structures, such as `if`
+and `repeat`, at either the template level or the routine level.  But machine
+languages usually have many specialized branch instructions.  It is unclear
+currently how best to allow these control structures to use these instructions.
+
+For other purposes, there are facilities we can use which are somewhat easier to
+handle.  One such facility is templates that are employed implicitly.
+
+For instance, the reason we said the motivating example given above is only "almost"
+enough information to produce a machine-language program, is that we haven't defined
+what the `main` routine should do when it's finished.  Presumably it should return to
+its caller, but the program doesn't provide a way to say that in machine language.
+But we can provide this information by defining an implicit template like
 
     template _return() {
         0x90                                    /* RTS */
     }
 
 and the compiler would insert this at the end of each routine as necessary.
+
+Correspondingly, we need to define what it means to the machine language to call
+a routine:
+
+    template _call(routine r) {
+        0x20 [<r] [>r]                          /* JSR */
+    }
+
+It might be the case that implicit templates can be used for control structures as
+well, but it is less clear in what exact manner that would happen.
+
+### Template format
+
+The formal arguments of the template are given in a list; `in`, `out`, and
+`trash` modifiers are attached to them directly.
+
+The body of the template consists of a list of 8-bit bytes.  Certainly one
+could argue this is not the apex of architecture-agnosticism, but, we will
+accept some limitations in the name of getting something done.
+
+These emitted bytes are specified by literal values, or functions of
+parameter names.
+
+Literal values are emitted directly in the output binary.  They are usually
+given in hexadecimal, and correspond to opcodes or constant operands.
+
+Parameters of the `value` role resolve to their value.  If the value consists
+of more than 8 bits, a function must be used to extract 8 bits at a time.
+
+Parameters of the `location` role resolve to their address.  If the address
+consists of more than 8 bits, again, a function must be used to extract 8 bits
+at a time.
+
+Other functions should be available to, say, convert an absolute address into
+one relative to the current emitting address (for relative branches).
+
+### Questions about templates
+
+Can templates call other templates?
+
+Can templates affect declarations that aren't given as parameters?  It would
+be useful if they could, but where then do we notate that these declarations
+are `in`, `out`, `trash`?
+
+Implementation notes
+--------------------
+
+The control-flow graph is derived from the AST.  This can be done either
+explicitly (traversing the AST and constructing a separate control-flow graph)
+or implicitly (to traverse the control-flow graph, traverse the AST in the
+manner which results in the control-flow graph; no explicit data structure is
+constructed.)
+
+Some of the most convoluted parts of the SixtyPical compiler can be traced
+to traversing the control-flow graph implicitly, via the AST.  For the
+PolyRical compiler, it would probably be a better idea to construct an explicit
+control-flow graph (with explicit join nodes and so forth) on an early pass,
+then to traverse that graph, instead of the AST, during static analyses and
+code generation.
+
+[flow typing]: https://en.wikipedia.org/wiki/Flow_typing
