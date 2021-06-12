@@ -25,9 +25,9 @@ has been written, and all of the decisions described here are subject to change.
 Motivating example
 ------------------
 
-A PolyRical program consists of pragmas, templates, and declarations.  Typically a program
-would import a set of templates from a library using a pragma, but to convey the
-flavour of the the language, here is a self-contained example program:
+A PolyRical program consists of directives, template definitions, and global declarations.
+Typically, a program would import a set of templates from a library using a directive,
+but to convey the flavour of the the language, here is a self-contained example program:
 
     word[8] register A
     word[8] location score @ 0xc000
@@ -69,19 +69,20 @@ You can also read [a more involved example](#a-more-involved-example) below.
 In more detail
 --------------
 
-A declaration consists of a type, a role, a name, an optional initializer, and
+A global declaration consists of a type, a role, a name, an optional initializer, and
 an optional location.  Some combinations are not valid — for instance, any declaration
 with the role `value` must include the initializer.
 
-Declarations declare global variables, constants, and routines.  A routine is
-just a constant of `routine` type.
+Global declarations declare global variables, constants, and routines.  A routine is
+just a constant of `routine` type.  (More specifically, it is a read-only initialized
+location of `routine` type.)
 
-Each routine type is parameterized with a set of declarations and constraints on
-those declarations.
+Each routine type is parameterized with a set of global references, and constraints on
+those globals.
 
 There are no parameters to a routine, and no local variables.  All variables are
 global.  But each routine must conform to the constraints that its type imposes on
-the declarations on the program.  So, if the type declares that the variable `A`
+the globals in the program.  So, if the type declares that the variable `A`
 will be given a meaningful value by the routine, then the routine must give it a
 meaningful value, or the implementation should signal an error condition.
 
@@ -93,17 +94,17 @@ propagated to the rest of the program.  Most programmers would use a library of
 templates instead of writing their own.
 
 A routine body consists of a list of template applications.  The template
-definition used in a template application is retrieved based on the types and
-roles of the declarations given as parameters.  This is like method overloading in
-languages such as Java.  Actually, it goes further, in that a template definition
-can list a particular declaration, rather than just a type and role, as one of its
-parameters.  This definition will be selected when this exact parameter is used.
-The `load` and `store` templates in the above example demonstrate this for the
-declaration `A`.
+definition used in a template application is selected based on the types and
+roles of the parameters, each of which may be a global or a literal value.  This is
+like method overloading in languages such as Java.  Actually, it goes further,
+in that a template definition can list a particular global, rather than just a
+type and role, as one of its parameters.  This definition will be selected when
+this exact global is given as the parameter.  The `load` and `store` templates in
+the above example demonstrate this for the global `A`.
 
 ### Meaningful values
 
-The most prominent property of declarations that PolyRical tracks is _meaningfulness_.
+The most prominent property of global declarations that PolyRical tracks is _meaningfulness_.
 This is very similar to how many C compilers track _defineness_ of variables, and
 are able to warn the user if the code uses a variable that is not defined, or may not
 be defined in all cases.
@@ -111,18 +112,18 @@ be defined in all cases.
 Meaningfulness is controlled by three constraints on each routine type and on each
 template:
 
-*   `in` asserts that a declaration must be meaningful before the routine or template is applied
-*   `out` asserts that a declaration will be meaningful after the routine or template is applied
-*   `trash` asserts that a declaration will not be meaningful after the routine or template is applied
+*   `in` asserts that the global must be meaningful before the routine or template is applied
+*   `out` asserts that the global will be meaningful after the routine or template is applied
+*   `trash` asserts that the global will not be meaningful after the routine or template is applied
 
-The meaningfulness of all other declarations is preserved when a routine or template
+The meaningfulness of all other globals is preserved when a routine or template
 is applied.
 
-In particular, `in` asserts the meaningfulness of a declaration during input, so
-in the absence of `trash` on the same declaration, the declaration is assumed to
+In particular, `in` asserts the meaningfulness of a global during input, so
+in the absence of `trash` on the same global, that global is assumed to
 also be meaningful on output.
 
-Other properties of declarations beyond meaningfulness, such as range, and whether
+Other properties of globals beyond meaningfulness, such as range, and whether
 a routine is  ever called, are trackable by symbolic execution.  SixtyPical already
 tracks several of these, and one day PolyRical might as well.
 
@@ -164,16 +165,16 @@ complicate analysis, it's likely their use will be highly restricted.
 
 Meaningfulness has "at least as much as" properties when it comes to using values of
 routine type.  Such a table might be defined with a type of routines that
-trash a given declaration (for example, `A`).  This should be thought of as
+trash a given global (for example, `A`).  This should be thought of as
 saying "In the worst case, the routines stored in this table trash A".  It
 should be entirely possible to assign a routine that does _not_ trash A, to
 a cell in that table.
 
 ### Roles
 
-Along with a type, each declaration has a role.  There are two main roles, which
+Along with a type, each global has a role.  There are two main roles, which
 are `location` and `value`.  These are similar to the concepts of `lvalue` and
-`rvalue` respectively, in languages such as C.  A declaration which is a
+`rvalue` respectively, in languages such as C.  A global which is a
 `location` supports the operation of having its address taken; it does not
 directly support having its value set or read, but there may be machine
 instructions which do this, and one or more templates defined which use them.
@@ -315,7 +316,7 @@ Only `location` role arguments can be given `in`, `out`, and `trash`
 modifiers; they don't make sense on those of `value` role.
 
 The template may involve the state of the machine beyond just the arguments
-it is given.  When it does this, it should give a list of declarations that
+it is given.  When it does this, it should give a list of globals that
 are involved, and `in`, `out`, and `trash` modifiers on them as necessary.
 This is not an ordered list, it is a set, and it appears after the list of
 arguments.
@@ -331,16 +332,16 @@ could argue this is not the apex of architecture-agnosticism, but, we will
 accept some limitations in the name of getting something done.)
 
 These emitted bytes are specified by literal values, or functions of
-parameter or declaration names.
+parameter or global names.
 
 Literal values are emitted directly in the output binary.  They are usually
 given in hexadecimal, and correspond to opcodes or constant operands.
 
-Parameters or declarations of the `value` role resolve to their value.  If the
+Parameters or globals of the `value` role resolve to their value.  If the
 value consists of more than 8 bits, a function must be used to extract 8 bits
 at a time.
 
-Parameters or declarations of the `location` role resolve to their address.
+Parameters or globals of the `location` role resolve to their address.
 If the address consists of more than 8 bits, again, a function must be used
 to extract 8 bits at a time.
 
@@ -359,13 +360,27 @@ tell us what it is they affect; we take their word for it, and shouldn't have
 to check them.  Also, any aggregation of template bodies could be done by
 hand, so templates-calling-other-templates isn't strictly necessary.
 
-What happens when one of the parameters is the same as one of the declarations
+What happens when one of the parameters is the same as one of the globals
 in the "this template also involves" set?  This, too, complicates analysis.
 It's tempting to say that the situation should be just disallowed, because it's
 hard to see how it leads to more utility in a clean way, and easy to see how
 template-hygiene-violation-like errors could happen with it.
 
-A More Involved Example
+### More things to think about
+
+Templates should still be able to take blocks, to support things like
+SixtyPical's `with interrupts off` and `save`.  Blocks are OK, it's unrestricted
+use of labels we want to avoid.
+
+Some architectures have a data stack that is shared between routines.  This
+should be a global of stack type.  Routines should ideally be able to notate
+how they affect the stack.  Think: type declarations for Forths.
+
+Zero-page versus 16-bit addresses (in 6502).  Generalizing this means
+supporting "different kinds of pointers".  Another example is segment:offset
+references on 80286.  Possibly type qualifiers a la Dieter would work here.
+
+A more involved example
 -----------------------
 
 This is [the "echo" program from SITU-SOL](https://raw.githubusercontent.com/catseye/SITU-SOL/master/doc/bootstrap-zero/images/tumblr_inline_nqr9ipKWZB1tvda25_540.jpg)
@@ -453,6 +468,43 @@ a more realistic version of this file would have
     }
 
 and so forth.
+
+Putative Grammar
+----------------
+
+In EBNF.  Likely quite incomplete at this stage.
+
+    Program         ::= {Directive | GlobalDecl | TemplateDefn}.
+    Directive       ::= "include" StringLit.
+
+    GlobalDecl      ::= Type Role Ident<new:global> ["=" Initializer] ["@" Address].
+    Type            ::= PrimType [TableSize].
+    PrimType        ::= "word" "[" WordSize "]"
+                      | "routine" "(" DeclUsageList ")".
+    Role            ::= "location" | "register" | "value".
+    DeclUsageList   ::= DeclUsage {"," DeclUsage}.
+    DeclUsage       ::= {AccessQualifier} Type Ident<global>.
+    AccessQualifier ::= "in" | "out" | "trash".
+
+    Address         ::= IntLit.
+    Initializer     ::= IntLit | RoutineLit.
+
+    TemplateDefn    ::= "template" Ident<new:global> "(" [TemplateFormals] ")" [":" "(" DeclUsageList ")"] TemplateBlock.
+    TemplateFormals ::= TemplateFormal {"," TemplateFormal}.
+    TemplateFormal  ::= {AccessQualifier} Type Ident<new:param>.
+    TemplateBlock   ::= "{" {Emittable} "}".
+    Emittable       ::= IntLit | Ident<global/param> | EmitFunc "(" Emittable ")".
+    EmitFunc        ::= "lo" | "hi" | "rel".
+
+    Ident           ::= <<alphabetic (alphanumeric|'?')*>>.
+    StringLit       ::= <<'"' any* '"'>>.
+    IntLit          ::= <<('0x' hexdigit+|digit+)>>.
+
+    RoutineLit      ::= RoutineBlock.
+    RoutineBlock    ::= "{" Operation {"," Operation} "}".
+    Operation       ::= Ident<global> "(" [Actuals] ")".
+    Actuals         ::= Actual {"," Actual}.
+    Actual          ::= Ident<global> | IntLit.
 
 Implementation notes
 --------------------
